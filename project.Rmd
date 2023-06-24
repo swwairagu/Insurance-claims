@@ -1,0 +1,653 @@
+---
+title: "Predicting Insurance Claim Filings: An Analysis of Demographic and Health Factors and Their Impact on Claim Size"
+author: "Stephanie Wairagu"
+date: "3/26/2023"
+output:
+  html_document: 
+    theme: cerulean
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Introduction
+
+Health insurance is a critical component of the US healthcare system, providing financial protection and access to care for millions of Americans. With healthcare costs on the rise and medical emergencies and chronic conditions affecting individuals across the country, managing insurance claims has become increasingly important for health insurance companies. By analyzing claims data, insurance companies can identify patterns and trends in demand and utilization of medical care. This will help inform policy development aimed at providing high-quality care to patients, especially those considered high-risk, while simultaneously reducing costs for policyholders and insurance companies.
+
+This research project aims to:
+
+1. Analyze the relationship between demographic and health factors and insurance claim filings
+
+2. Predict the impact of these factors on the the size of claims filed
+
+Overall, insights gained from this analysis have the potential to contribute to the development of more effective insurance policies that are tailored to the healthcare needs of specific groups of patients in the US.
+
+## Data
+
+To start, load the `tidyverse` and `broom` packages which will be used for this analysis.
+
+```{r load-package, eval=TRUE, message=FALSE}
+library(tidyverse)
+library(broom)
+```
+
+Next, we read in the dataset.
+
+```{r load-data, eval=TRUE, message=FALSE}
+claims <- read_csv("data/insurance_data.csv")
+
+#view(claims)
+```
+
+This dataset is an insurance claims data set that contains comprehensive demographic and health information of insurance policyholders and their claims. It includes `r nrow(claims)` rows and `r ncol(claims)` columns. Each row represents a unique patient, claim observation whereas each column represents a variable. The variables in this dataset are as follows:
+
+**age**: age of the insured patient
+
+**gender**: gender of the insured patient
+
+**bmi**: Body Mass Index of the insured patient
+
+**bloodpressure**: blood pressure of the insured patient
+
+**diabetic**: whether the insured patient is diabetic or not
+
+**children**: number of children of the insured patient
+
+**smoker**: whether the insured patient is a smoker or not
+
+**region**: region of the insured patient
+
+**claim**: amount of the insurance claim
+
+Ultimately, this dataset is a valuable resource for researchers interested in exploring the relationship between demographic and health factors and insurance claims in the US.
+
+
+The data can be found [here](https://www.kaggle.com/datasets/thedevastator/insurance-claim-analysis-demographic-and-health). It was sourced by [The Devastator](https://www.kaggle.com/thedevastator) and created by [Sumit Kumar Shukla](https://data.world/sumitrock).
+
+## Exploratory Data Analysis
+
+We start off by examining the variables and their data types. Here we see that gender, diabetic, smoker, and region are characters (categorical variables) while the rest of the continuous variables are doubles. However, two of the continuous variables, i.e. age and children, make more sense when treated as factor variables in this analysis; therefore, later on, I will create new columns with age and number of children as categorical variables.
+
+```{r data-overview, eval=TRUE, message=FALSE}
+glimpse(claims)
+```
+
+Next, we check for missing or invalid values in the data as they can affect the distributions of variables. Since this step will be repeated across all variables, writing a function will help streamline the process.
+
+```{r missing-data}
+missing_data <- function(data, col){
+  data %>% 
+    summarize(n_missing = sum(is.na({{col}})))
+}
+```
+
+We also examine the distribution of variables. To do this, we create histograms to visualize the distribution of continuous variables and bar plots to visualize the distribution of the categorical variables. Since this step is also repeated, writing functions is more efficient.
+
+```{r dist-cont}
+# Checking the distribution of continuous variables
+hist_plot <- function(data, col){
+  data %>%
+    filter(!is.na({{col}})) %>%
+    ggplot(aes(x = .data[[col]])) +
+    geom_histogram(bins = 10) +
+    labs(x = col, y = "Frequency", title = "Distribution")
+}
+```
+
+```{r dist-cat}
+# Checking the distribution of categorical variables
+bar_plot <- function(data, col){
+  data %>% 
+    filter(!is.na({{col}})) %>% 
+    count({{col}}) %>% 
+    ggplot(aes(x = reorder({{col}}, -n), y = n)) +            # -n to arrange bars in descending order
+    geom_bar(stat = "identity") +
+    labs(x = NULL, y = "Count", title = "Distribution")
+}
+```
+
+## Age
+
+```{r}
+missing_data(claims, age)
+hist_plot(claims, col = "age")
+```
+
+There are 5 NA values in the age column. The distribution of age appears to be symmetric and bimodal. The peaks are at around 30 and 45 years indicating that those are the most common ages of patients who filed claims.
+
+## BMI
+
+```{r}
+missing_data(claims, bmi)
+hist_plot(claims, col = "bmi")
+```
+
+There are no missing BMI values. The histogram looks pretty symmetric indicating that the distribution is approximately normal. The peak of the histogram is around 27-30 indicating that these are the most commonly recorded BMI values. The range is from about 15 to around 50. However, more patients have the middle range of BMIs with fewer people at the extremes. There also appears to be an extreme outlier (> 50).
+
+## Blood Pressure
+
+```{r}
+missing_data(claims, bloodpressure)
+hist_plot(claims, col = "bloodpressure")
+```
+
+There are no missing blood pressure values. The distribution appears to be very right-skewed with several outliers. The peak of the histogram is between 80-90 mmHg and the BP readings range from around 75 to 140 mmHg.
+
+## Claim Amount
+
+```{r}
+missing_data(claims, claim)
+hist_plot(claims, col = "claim")
+```
+
+There are no missing values for claim amounts. The claims distribution appears to be right-skewed with several outliers. The range of values is very wide with values ranging from 0 to around 60000. The peak of the histogram is around $10000 indicating that this is the most commonly filed claim amount.
+
+## Gender
+
+```{r}
+missing_data(claims, gender)
+bar_plot(claims, gender)
+```
+
+There are no missing gender values. In addition, the distribution of gender is fairly balanced, with the number of males and females being roughly equal. This suggests that there is not a significant gender bias in our sample as both males and females are equally represented.
+
+## Diabetic status
+
+```{r}
+missing_data(claims, diabetic)
+bar_plot(claims, diabetic)
+```
+
+There are no missing values. The distribution of diabetic and non-diabetic patients in our data is relatively balanced, with only a small difference in the number of patients with and without diabetes.
+
+## Smoker status
+
+```{r}
+missing_data(claims, smoker)
+bar_plot(claims, smoker)
+```
+
+There are no missing values in the smoker column. The distribution of smokers and non-smokers shows a greater representation of non-smokers compared to smokers. This suggests that smoking may not be a dominant characteristic in our sample; however, more analysis is needed to determine if there are any significant differences in the claim amounts between the two groups.
+
+## Region
+
+```{r}
+missing_data(claims, region)
+bar_plot(claims, region)
+```
+
+There are three missing values in the region column. The distribution of regions in our data reveals that the southeast region has the highest representation while the northeast region has the lowest representation.
+
+## New Variables
+
+1. Create a new column called **children_cat** which will treat the number of children as a categorical variable rather than a continuous variable. I plan to use this new variable to group observations by the number of children the policyholder has, and compare other variables by these groups.
+
+```{r}
+claims %>% 
+  summarize(max = max(children))
+```
+
+```{r children-cat}
+claims <- claims %>% 
+  mutate(children_cat = case_when(
+    children == 0 ~ "none",
+    children == 1 ~ "one",
+    children == 2 ~ "two",
+    children == 3 ~ "three",
+    children == 4 ~ "four",
+    TRUE ~ "five"
+  ))
+```
+
+```{r}
+bar_plot(claims, children_cat)
+```
+
+The distribution of the number of children per policyholder indicates that the majority of claims in our sample are from policyholders who have no children, while the fewest are from those with five children. Additionally, the distribution shows a gradual decrease in the number of claims as the number of children increases, with a more pronounced decline in the number of claims from policyholders with four or five children. There is also a steep decrease in the number of claims when transitioning from no children to one child.
+
+
+2. Create a new column called **weight_category** with weight status categories and their corresponding BMI ranges.
+
+To create the `weight_category` variable, I used weight categories defined by the [Centers for Disease Control and Prevention (CDC)](https://www.cdc.gov/healthyweight/assessing/bmi/adult_bmi/index.html) based on body mass index (BMI) ranges. The weight categories include: 'Underweight' (BMI < 18.5), 'Healthy weight' (18.5 ≤ BMI ≤ 24.9), 'Overweight' (25.0 ≤ BMI ≤ 29.9), and 'Obese' (BMI ≥ 30).
+
+```{r weight-category}
+claims <- claims %>% 
+  mutate(weight_category = case_when(
+    bmi < 18.5 ~ "Underweight",
+    bmi < 25.0 ~ "Healthy weight",
+    bmi < 30.0 ~ "Overweight",
+    TRUE ~ "Obese"
+  ))
+```
+
+```{r}
+bar_plot(claims, weight_category)
+```
+
+The distribution of weight status categories indicates that a large number of claims are from patients who are obese, while very few are from underweight patients.
+
+3. Create a new column called **bp_category** with blood pressure categories and their corresponding systolic blood pressure ranges.
+
+To create the `bp_category` variable, I used blood pressure categories defined by the [Centers for Disease and Prevention (CDC)](https://www.cdc.gov/bloodpressure/facts.htm) based on systolic blood pressure ranges. The blood pressure categories include: 'Normal' (BP < 120), 'Elevated' (120 ≤ BP ≤ 129.9), 'Stage 1 Hypertension' (130 ≤ BP ≤ 139), and 'Stage 2 Hypertension' (BP ≥ 140).
+
+```{r bp-category}
+claims <- claims %>% 
+  mutate(bp_category = case_when(
+    bloodpressure < 120 ~ "Normal",
+    bloodpressure < 130 ~ "Elevated",
+    bloodpressure < 140 ~ "Stage 1 Hypertension",
+    TRUE ~ "Stage 2 Hypertension"
+  ))
+```
+
+```{r}
+bar_plot(claims, bp_category)
+```
+
+The distribution of blood pressure categories reveals that the majority of claims are from policyholders who have normal blood pressure, with a very small proportion being from those with elevated BP, stage 1 hypertension, or stage 2 hypertension.
+
+4. Create a new column called **age_cat** with age groups and their corresponding age ranges. This will be a categorical variable.
+
+The age group categories will include: '18 - 24' (age < 25), '25 - 34' (25 ≤ age ≤ 34), '35 - 44' (35 ≤ age ≤ 44), '45 - 54' (45 ≤ age ≤ 54), and '55 and over' (age ≥ 55). 
+
+```{r}
+claims %>% 
+  filter(!is.na(age)) %>% 
+  summarize(min_age = min(age),
+            max_age = max(age))
+```
+
+```{r age-cat}
+claims <- claims %>% 
+  filter(!is.na(age)) %>% 
+  mutate(age_cat = case_when(
+    age < 25 ~ "18 - 24",
+    age < 35 ~ "25 - 34",
+    age < 45 ~ "35 - 44",
+    age < 55 ~ "45 - 54",
+    TRUE ~ "55 and over"
+  ))
+```
+
+```{r}
+bar_plot(claims, age_cat)
+```
+
+The distribution of age groups shows that the majority of policyholders who filed a claim are between 25-34 years old, with fewer policyholders being 18-24 years, and the fewest policyholders being 55 years and over. This suggests that our data is more representative of young and early middle-aged adults.
+
+## Renaming Values
+
+I decided to rename observations in the diabetic and smoker variables so that once I do my visualizations, they would be easier to understand. It is easier to differentiate between 'Diabetic/Non-diabetic' and 'Smoker/Non-smoker' compared to a 'yes/no'.
+
+```{r rename}
+claims <- claims %>% 
+  mutate(diabetic = if_else(diabetic == "Yes", "Diabetic", "Non-diabetic")) %>% 
+  mutate(smoker = if_else(smoker == "Yes", "Smoker", "Non-smoker")) 
+```
+
+## Exploring relationships between different health factors and insurance claim amounts
+
+I will start by assessing the relationship between health factors, such as diabetic status, smoking status, blood pressure & BMI, and insurance claim sizes to identify important trends.
+
+## BMI
+
+```{r scatter-bmi}
+ggplot(claims, aes(x = bmi,
+                   y = claim)) +
+  geom_jitter() +
+  geom_smooth(method = "lm", se = FALSE, col ="red") +
+  labs(x = "BMI",
+       y = "Claim ($)",
+       title = "Distribution of Claim Amounts by BMI")
+```
+
+The scatter plot shows that there is a positive linear association between BMI and claim amount.
+
+We came up with four different weight categories based on the BMI; therefore, we can also assess distribution of claims by weight status:
+
+```{r box-weight-cat}
+ggplot(claims, aes(x = claim,
+                   y = weight_category,
+                   fill = weight_category)) +
+  geom_boxplot() +
+  labs(x = "Claim ($)",
+       y = NULL,
+       title = "Distribution of Claim Amounts by Weight Status") +
+  theme(legend.position = "none")
+```
+
+Filter out claims greater than $50,000 so that observations are not obscured by the extreme outliers.
+
+```{r wt-filter-claims-less-than-50000}
+claims_wt <- claims %>% 
+  filter(claim < 50000)
+
+ggplot(claims_wt, aes(x = claim,
+                      y = weight_category,
+                      fill = weight_category)) +
+  geom_boxplot() +
+  labs(x = "Claim ($)",
+     y = NULL,
+     title = "Distribution of Claim Amounts by Weight Status",
+     subtitle = "Visualization excludes claims greater than $50,000") +
+  theme(legend.position = "none")
+```
+
+The distribution of claims in all the weight groups appears to be right-skewed. The underweight group has the lowest median claim amount while the obese group has the highest median claim amount. Additionally, the obese group has the largest IQR. Several high outliers are observed.
+
+## Blood Pressure
+
+```{r scatter-bp}
+ggplot(claims, aes(x = bloodpressure,
+                   y = claim)) +
+  geom_jitter() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(x = "Blood Pressure",
+       y = "Claim ($)",
+       title = "Distribution of Claim Amounts by Blood Pressure")
+```
+
+The scatter plot shows that there is a positive linear association between blood pressure and claim amount.
+
+We can also check the distribution of claim amounts by bp categories:
+
+```{r box-bp-category}
+ggplot(claims, aes(x = claim,
+                   y = bp_category,
+                   fill = bp_category)) +
+  geom_boxplot() +
+  labs(x = "Claim ($)",
+       y = NULL,
+       title = "Distribution of Claim Amounts by Blood Pressure Categories") +
+  theme(legend.position = "none")
+```
+
+The median claim amount for those with normal blood pressure is much lower compared to the other categories. The distribution of the normal BP category also looks fairly symmetrical despite having several high outliers.
+
+We can filter out the normal BP category so that we see the differences between the other categories more clearly.
+
+```{r filter-remove-normalbp}
+claims_bp <- claims %>% 
+  filter(bp_category == "Elevated" | bp_category == "Stage 1 Hypertension" | bp_category == "Stage 2 Hypertension") 
+
+ggplot(claims_bp, aes(x = claim,
+                      y = bp_category,
+                      fill = bp_category)) +
+  geom_boxplot() +
+  labs(x = "Claim ($)",
+       y = NULL,
+       title = "Distribution of Claim Amounts by Blood Pressure Categories",
+       subtitle = "Visualization excludes the normal blood presssure category") +
+  theme(legend.position = "none")
+```
+
+The distribution of claims is right-skewed for policyholders with Stage 2 hypertension, left-skewed for policyholders with Stage 1 hypertension, and symmetrical for policyholders with elevated blood pressure. The median claim amount for the Stage 1 hypertension and elevated blood pressure groups appear to be equal. The median claim amount for the Stage 2 hypertension category is equal to its Q1 and is the lowest compared to the other categories. The Stage 2 hypertension category also has the smallest IQR. Finally, both the Stage 2 hypertension and elevated blood pressure groups have high outliers.
+
+Since the median of Stage 2 Hypertension is about the same as its Q1, we check the count to make sure we have a substantial amount of observations. We see that there were only 5 claims filed by patients with Stage 2 Hypertension, which is not much.
+
+```{r}
+claims %>% 
+  count(bp_category)
+```
+
+## Diabetic Status
+
+```{r box-diabetic}
+ggplot(claims, aes(x = diabetic,
+                   y = claim,
+                   fill = diabetic)) +
+  geom_boxplot() +
+  labs(x = NULL,
+       y = "Claim ($)",
+       title = "Distribution of Claim Amounts by Diabetic Status") +
+  theme(legend.position = "none")
+```
+
+The distribution of claims for both the diabetic and non-diabetic policyholders appears to be fairly balanced. The median claim amounts for both groups seems to be similar. The IQR also appears to be almost similar. Several high outliers are observed.
+
+## Smoking Status
+
+```{r box-smoker}
+ggplot(claims, aes(x = smoker,
+                   y = claim,
+                   fill = smoker)) +
+  geom_boxplot() +
+  labs(x = NULL,
+       y = "Claim ($)",
+       title = "Distribution of Claim Amounts by Smoking Status") +
+  theme(legend.position = "none")
+```
+
+The distribution of claims is left-skewed for policyholders who are smokers. The median claim amount is much lower among the non-smokers. The non-smoker group also has the smallest IQR and has several outliers. However, the claim amounts for some of these outliers are still lower than the median claim amount for the smoker group.
+
+## Exploring relationships between different demographic factors and insurance claim amounts
+
+## Age 
+
+```{r scatter-age}
+ggplot(claims, aes(x = age,
+                   y = claim)) +
+  geom_jitter() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(x = "Age",
+       y = "Claim ($)",
+       title = "Distribution of Claim Amounts by Age")
+```
+
+The almost horizontal line suggests that there is no significant relationship between age and claim amount.
+
+We can also assess the distribution by age groups to see if there are any noteworthy trends:
+
+```{r box-age}
+ggplot(claims, aes(x = age_cat,
+                   y = claim,
+                   fill = age_cat)) +
+  geom_boxplot() +
+  labs(x = "Age",
+       y = "Claim ($)",
+       title = "Distribution of Claim Amounts by Age Groups") +
+  theme(legend.position = "none")
+```
+
+The distribution of claims is visibly right-skewed for the 18-24 age group. However, the median claim amounts appear very similar but is just slightly higher in the 35-44 age group. The 18-24 age group has the largest IQR. Several outliers are observed. 
+
+## Gender
+
+```{r box-gender}
+ggplot(claims, aes(x = gender,
+                   y = claim,
+                   fill = gender)) +
+  geom_boxplot() +
+  labs(x = NULL,
+       y = "Claim ($)",
+       title = "Distribution of Claim Amounts by Gender") +
+  theme(legend.position = "none")
+```
+
+Filter out claims greater than $45,000 so that observations are not obscured by the extreme outliers.
+
+```{r gender-filter-claims-less-than-45000}
+claims_gender <- claims %>% 
+  filter(claim < 45000) 
+
+ggplot(claims_gender, aes(x = gender,
+                          y = claim,
+                          fill = gender)) +
+  geom_boxplot() +
+  labs(x = NULL,
+       y = "Claim ($)",
+       title = "Distribution of Claim Amounts by Gender",
+       subtitle = "Visualization excludes claims greater than $45,000") +
+  theme(legend.position = "none")
+```
+
+The distribution of claims appears to be right-skewed for the males and symmetric for the females. The median claim amounts appear to be very similar for both genders. However, males have a larger IQR compared to females. Several outliers are observed.
+
+## Region
+
+```{r box-region}
+claims %>% 
+  filter(!is.na(region)) %>% 
+  ggplot(aes(x = claim,
+             y = region,
+             fill = region)) +
+  geom_boxplot() +
+  labs(x = "Claim ($)",
+       y = NULL,
+       title = "Distribution of Claim Amounts by Region") +
+  theme(legend.position = "none")
+```
+
+Filter out claims greater than $45,000 so that observations are not obscured by the extreme outliers.
+
+```{r region-filter-claims-less-than-45000}
+claims_region <- claims %>% 
+  filter(!is.na(region),
+         claim < 45000) 
+
+ggplot(claims_region, aes(x = claim,
+                          y = region,
+                          fill = region)) +
+  geom_boxplot() +
+  labs(x = "Claim ($)",
+       y = NULL,
+       title = "Distribution of Claim Amounts by Region",
+       subtitle = "Visualization excludes claims greater than $45,000") +
+  theme(legend.position = "none")
+```
+
+The distribution of claims appears to be right-skewed in the southeast and northeast regions. The northeast region has the highest median claim amount while the southeast region has the lowest median claim. The northeast region also has the largest IQR. Finally, several high outliers are observed in all regions.
+
+## Number of Children
+
+```{r box-children}
+ggplot(claims, aes(x = children_cat,
+                   y = claim,
+                   fill = children_cat)) +
+  geom_boxplot() +
+  labs(x = "Number of children",
+       y = "Claim ($)",
+       title = "Distribution of Claim Amounts by Number of Children") +
+  theme(legend.position = "none")
+```
+
+Filter out claims greater than $45,000 so that observations are not obscured by the extreme outliers. I'll also reorder the number of children in numerical order instead of alphabetical order.
+
+```{r children-filter-claims-less-than-45000}
+claims_children <- claims %>% 
+  filter(claim < 45000) %>% 
+  mutate(children_cat = fct_reorder(children_cat, children))
+
+ggplot(claims_children, aes(x = children_cat,
+                            y = claim,
+                            fill = children_cat)) +
+  geom_boxplot() +
+  labs(x = "Number of children",
+       y = "Claim ($)",
+       title = "Distribution of Claim Amounts by Number of Children",
+       subtitle = "Visualization excludes claims greater than $45,000") +
+  theme(legend.position = "none")
+```
+
+The distribution of claims is left-skewed for policyholders with five children and right-skewed for policyholders with no children and those with two, three, or four children. The median claim amount is slightly higher for those with four children. IQR is largest for those with five children. High outliers are observed throughout all family sizes.
+
+## Regression Analysis
+
+According to [healthcare.gov](https://www.healthcare.gov/how-plans-set-your-premiums/#:~:text=Five%20factors%20can%20affect%20a,can't%20affect%20your%20premium.), factors that can affect a plan’s monthly premium include: location, age, tobacco use, plan category, and whether the plan covers dependents. Under law, insurance companies are not allowed to charge different insurance premiums based on gender or medical history, for example, history of diabetes. However, factors such as BMI and blood pressure could also affect how much you pay for your health insurance premium. This is because under the Affordable Care Act (ACA), group health plans can adopt "health-contingent wellness programs" that base people's premiums on their health status. These [wellness programs](https://www.kff.org/private-insurance/issue-brief/workplace-wellness-programs-characteristics-and-requirements/) can give people discounts on their premiums – or charge them more – depending on whether they meet certain health goals, like normal weight or blood pressure.
+
+The health insurance pricing information above is relevant because health insurance premiums reflect the expected claims of enrollees since premiums are set to pay projected claims. Therefore, for my regression analysis, I am interested to predict the relationship between the various health and demographic variables and the amount of insurance claims, and identify which variable is the best predictor of claim amount.
+
+From my initial exploratory data analysis, my box plots and scatter plots revealed that:
+
+- There is an association between BMI and claim amount
+- There is a strong association between blood pressure and claim amount
+- There is no significant association between diabetic status and claim amount
+- There is a strong association between smoking status and claim amount
+- There is no significant association between age and claim amount
+- There is no significant association between gender and claim amount
+- There is an association between region and claim amount
+- There might be an association between number of children and claim amount
+
+We can now begin doing our linear regression analysis:
+
+I'll start by testing for any collinearity between my predictor variables using a scatterplot matrix (e.g. between age and number of children / between diabetic status and BMI). This is to make sure there is no distortion of the model.
+
+```{r warning = FALSE, message = FALSE, fig.height=10, fig.width=12}
+library(GGally)
+claims %>% 
+  select(claim, bloodpressure, bmi, age, gender, smoker, diabetic, children, region) %>% 
+  ggpairs()
+```
+
+Next, I will fit a full model with all my predictor variables:
+
+```{r lm-full}
+m_claim_full <- lm(claim ~ bloodpressure + bmi + age + gender + smoker + diabetic + children + region, data = claims)
+tidy(m_claim_full)
+```
+
+$\widehat{claim} = -22934.16 + 229.48bloodpressure + 352.36bmi + 18.19age - 2.16gender_{male} + 20662.95smoker_{smoker} + 279.74diabetic_{non-diabetic} + 680.72children - 1954.29region_{northwest} - 2899.06region_{southeast} - 2234.23region_{southwest}$
+
+The p-values for age, gender, and diabetic status are > 0.05 (not significant).
+
+```{r}
+glance(m_claim_full)
+```
+
+The adjusted $R^2$ is 0.7047 meaning that about 70.47% of the variation in claim amounts can be explained by the linear model above.
+
+```{r}
+confint(m_claim_full)
+```
+
+Since the p-values for age, gender, and diabetic status are greater than 0.05, and their respective confidence intervals contain 0, we can confirm that there is no association between these three factors and claim amount.
+
+Therefore, we need to create a better model where each of the independent predictor variables have a significant effect on the response.
+
+```{r select}
+selected_model <- step(m_claim_full, direction = "backward")
+tidy(selected_model) %>% select(term, estimate, p.value)
+
+glance(selected_model)
+```
+
+#### Final model
+
+$\widehat{claim} = -22020.82 + 228.78bloodpressure + 351.85bmi + 20649.65smoker_{smoker} + 677.54children - 1943.35region_{northwest} - 2880.72region_{southeast} - 2221.61region_{southwest}$
+
+Gender, diabetes status, and age have been excluded from my initial model after doing backwards elimination. Notably, the adjusted $R^2$ of my enhanced model is 0.7049, showing only a slight deviation from the adjusted $R^2$ of the initial model. Therefore, it can be concluded that 70.49% of the variation in claim amounts can be explained by the final model. This signifies a very good predictive model that can be employed to predict the claims of diverse patients. 
+
+The intercept in this model is -22020.82. This represents the expected insurance claim amount for a patient who has a blood pressure of zero, a BMI of zero, is not a smoker, has zero children, and lives in a region that is not included in the model. Since this hypothetical patient is not realistic, the intercept value is not practical.
+
+
+## Conclusions based on my final predictive model
+
+- Holding all other variables constant, the expected insurance claim amount increases by $228.78 for every unit increase in blood pressure.
+
+- Holding all other variables constant, the expected insurance claim amount increases by $351.85 for every unit increase in BMI.
+
+- Holding all other variables constant, the expected insurance claim amount for a patient who smokes is $20,649.65 higher than for a patient who doesn't smoke.
+
+- Holding all other variables constant, the expected insurance claim amount increases by $677.54 for each additional child the patient has.
+
+- Holding all other variables constant, the expected insurance claim amount for a patient in the Northwest region is $1943.35 lower than for a patient in the Northeast region.
+
+- Holding all other variables constant, the expected insurance claim amount for a patient in the Southeast region is $2880.72 lower than for a patient in the Northeast region.
+
+- Holding all other variables constant, the expected insurance claim amount for a patient in the Southwest region is $2221.61 lower than for a patient in the Northeast region.
+
+- It also appears that smoking status is the most important predictor variable in the regression model. It has the largest coefficient estimate and lowest p-value. I tested this by removing the smoker variable from the model and the adjusted $R^2$ dropped to 0.3152.
+
+```{r}
+m_test <- lm(claim ~ bloodpressure + bmi + children + region, data = claims)
+tidy(m_test)
+glance(m_test)
+```
+
+## Future research
+
+For future research, I may consider conducting further analysis to determine whether there are interactions between predictor variables (e.g., between smoking status and age) that may influence insurance claim amounts. This could provide a better understanding of the relationships between these variables and healthcare claims. 
+
+Furthermore, having established smoking status as the most crucial predictor of claim amounts, I am intrigued by the specific facet of smoking that exerts a more substantial influence on healthcare costs. Is it the type of smoking (e.g. smoking cigarettes, vaping, etc), the intensity of smoking (e.g., number of cigarettes per day), or how long someone has smoked over their lifetime? My next steps will therefore involve examining public health data sources such as the National Health Interview Survey, the National Health and Nutrition Examination Survey, or the Behavioral Risk Factor Surveillance System, and conducting additional modeling on a dataset that incorporates information on smoking behavior and healthcare costs.
+
+
